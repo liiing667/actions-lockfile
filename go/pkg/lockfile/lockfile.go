@@ -234,6 +234,29 @@ type Action struct {
 	Uses []string `yaml:"uses,omitempty"`
 }
 
+// RefIdentity parses the action's recorded ref into its safe identity form,
+// keeping the raw ref, its parsed kind, and any immutable commit identity
+// separate. See [ParseRefIdentity].
+func (a Action) RefIdentity() (RefIdentity, bool) {
+	return ParseRefIdentity(a.Ref)
+}
+
+// CommitHex returns the lowercase hex portion of the action's algo-hex
+// commit digest (e.g. "sha1-ABC..." → "abc...") — the immutable identity
+// the runner checks out, which stays valid even after the ref moves. It
+// returns "" when Commit is not a well-formed algo-hex digest.
+func (a Action) CommitHex() string {
+	dashIdx := strings.IndexByte(a.Commit, '-')
+	if dashIdx <= 0 || dashIdx == len(a.Commit)-1 {
+		return ""
+	}
+	digest := strings.ToLower(a.Commit[dashIdx+1:])
+	if !isValidDigest(strings.ToLower(a.Commit[:dashIdx]), digest) {
+		return ""
+	}
+	return digest
+}
+
 // MaxParseSize is the maximum number of bytes Parse accepts. Larger inputs are
 // rejected before any YAML parsing to prevent memory-exhaustion DoS.
 const MaxParseSize = 1 << 20 // 1 MiB
@@ -461,7 +484,17 @@ func rejectKeyRefMismatch(pinKey, action *yaml.Node) *ParseError {
 	for j := 0; j+1 < len(action.Content); j += 2 {
 		key := action.Content[j]
 		val := action.Content[j+1]
-		if key.Value == "ref" && val.Value != "" && val.Value != pin.Ref {
+		if key.Value == "ref" && val.Value != "" {
+			// Compare normalized forms so equivalent encodings of the same
+			// ref (e.g. "release%2Fv4" vs "release/v4", or SHA casing) are
+			// not flagged as a mismatch.
+			bodyRef := val.Value
+			if norm, ok := NormalizeRef(bodyRef); ok {
+				bodyRef = norm
+			}
+			if bodyRef == pin.Ref {
+				continue
+			}
 			// When the pin key ref is a full SHA, the body's ref is the
 			// discovered symbolic ref (tag/branch) — mismatch is expected.
 			if IsFullSha(pin.Ref) {

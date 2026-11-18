@@ -115,3 +115,86 @@ func TestPin_IndexKey(t *testing.T) {
 		})
 	}
 }
+
+func TestParsePin_NormalizesRef(t *testing.T) {
+	tests := []struct {
+		name  string
+		entry string
+		want  string // canonical Pin.String()
+	}{
+		{
+			name:  "uppercase SHA ref lowercased",
+			entry: "actions/checkout@11BD71901BBE5B1630CEEA73D27597364C9AF683",
+			want:  "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
+		},
+		{
+			name:  "percent-encoded slash decoded",
+			entry: "actions/checkout@release%2Fv4",
+			want:  "actions/checkout@release/v4",
+		},
+		{
+			name:  "tag case preserved",
+			entry: "Actions/Checkout@V4",
+			want:  "actions/checkout@V4",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pin, ok := ParsePin(tt.entry)
+			require.True(t, ok)
+			assert.Equal(t, tt.want, pin.String())
+		})
+	}
+}
+
+func TestParsePin_MalformedRefEncoding(t *testing.T) {
+	tests := []struct {
+		name  string
+		entry string
+	}{
+		{"bare percent", "actions/checkout@100%"},
+		{"invalid escape", "actions/checkout@v4%zz"},
+		{"encoded colon", "actions/checkout@v4%3Afoo"},
+		{"encoded NUL", "actions/checkout@v4%00"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := ParsePin(tt.entry)
+			assert.False(t, ok)
+			assert.Equal(t, Pin{}, got)
+		})
+	}
+}
+
+func TestPin_RefIdentity(t *testing.T) {
+	t.Run("commit pin is immutable", func(t *testing.T) {
+		pin, ok := ParsePin("actions/checkout@11BD71901BBE5B1630CEEA73D27597364C9AF683")
+		require.True(t, ok)
+		id, ok := pin.RefIdentity()
+		require.True(t, ok)
+		assert.Equal(t, RefKindCommit, id.Kind)
+		assert.Equal(t, "11bd71901bbe5b1630ceea73d27597364c9af683", id.Commit)
+		assert.True(t, id.IsImmutable())
+	})
+
+	t.Run("tag pin fails closed", func(t *testing.T) {
+		pin, ok := ParsePin("actions/checkout@v4.3.1")
+		require.True(t, ok)
+		id, ok := pin.RefIdentity()
+		require.True(t, ok)
+		assert.Equal(t, RefKindTag, id.Kind)
+		assert.Empty(t, id.Commit, "a tag is not an immutable identity")
+		assert.False(t, id.IsImmutable())
+		assert.True(t, id.IsReleaseTag())
+	})
+
+	t.Run("branch pin fails closed", func(t *testing.T) {
+		pin, ok := ParsePin("actions/checkout@main")
+		require.True(t, ok)
+		id, ok := pin.RefIdentity()
+		require.True(t, ok)
+		assert.Equal(t, RefKindBranch, id.Kind)
+		assert.Empty(t, id.Commit)
+		assert.False(t, id.IsImmutable())
+	})
+}

@@ -654,3 +654,61 @@ func TestParse_LegacyDigestSuffixedWorkflowDepRejected(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not a valid pin")
 }
+
+func TestParse_UppercaseSHAPinKeyCanonicalized(t *testing.T) {
+	// A full-SHA pin key is case-insensitive: the canonical key lowercases
+	// the hex, and the commit digest check compares case-insensitively.
+	input := "version: v0.0.3\ndependencies:\n" +
+		"  actions/checkout@11BD71901BBE5B1630CEEA73D27597364C9AF683:\n" +
+		"    ref: v4.3.1\n" +
+		"    commit: sha1-11bd71901bbe5b1630ceea73d27597364c9af683\n" +
+		"    owner_id: 1\n" +
+		"    repo_id: 2\n" +
+		"workflows:\n" +
+		"  .github/workflows/ci.yml:\n" +
+		"    - actions/checkout@11BD71901BBE5B1630CEEA73D27597364C9AF683\n"
+	f, err := Parse([]byte(input))
+	require.NoError(t, err)
+
+	const canonical = "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
+	action, ok := f.Dependencies[canonical]
+	require.True(t, ok, "dependency key should be canonicalized to lowercase SHA")
+	assert.Equal(t, "11bd71901bbe5b1630ceea73d27597364c9af683", action.CommitHex())
+	assert.Equal(t, []string{canonical}, f.Workflows[".github/workflows/ci.yml"])
+}
+
+func TestParse_EncodedRefUnifiesWithDecodedBodyRef(t *testing.T) {
+	// The pin key's percent-encoded ref and the body's plain ref name the
+	// same git ref; normalization must not flag them as a mismatch.
+	input := "version: v0.0.3\ndependencies:\n" +
+		"  actions/checkout@release%2Fv4:\n" +
+		"    ref: release/v4\n" +
+		"    commit: sha1-11bd71901bbe5b1630ceea73d27597364c9af683\n" +
+		"    owner_id: 1\n" +
+		"    repo_id: 2\n"
+	f, err := Parse([]byte(input))
+	require.NoError(t, err)
+
+	action, ok := f.Dependencies["actions/checkout@release/v4"]
+	require.True(t, ok, "pin key should be canonicalized to the decoded ref")
+	id, ok := action.RefIdentity()
+	require.True(t, ok)
+	assert.Equal(t, RefKindBranch, id.Kind)
+	assert.False(t, id.IsImmutable(), "a branch ref must fail closed")
+}
+
+func TestAction_RefIdentityAndCommitHex(t *testing.T) {
+	action := Action{
+		Ref:    "v4.3.1",
+		Commit: "sha1-11BD71901BBE5B1630CEEA73D27597364C9AF683",
+	}
+	id, ok := action.RefIdentity()
+	require.True(t, ok)
+	assert.Equal(t, RefKindTag, id.Kind)
+	assert.True(t, id.IsReleaseTag())
+	assert.Empty(t, id.Commit, "the immutable identity lives in Action.Commit, not the tag ref")
+	assert.Equal(t, "11bd71901bbe5b1630ceea73d27597364c9af683", action.CommitHex())
+
+	assert.Empty(t, Action{Commit: "not-a-digest"}.CommitHex())
+	assert.Empty(t, Action{}.CommitHex())
+}

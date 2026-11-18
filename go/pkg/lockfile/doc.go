@@ -9,4 +9,9 @@
 // repository action. [ParseReusableWorkflowRef] is its mirror for the
 // reusable-workflow shape (owner/repo/.github/workflows/name.yml@ref);
 // [IsLocalReusableWorkflow] handles the local ./.github/workflows/... shape.
+//
+// [ParseRefIdentity] classifies a ref string into its safe identity form —
+// raw ref, parsed kind (commit/tag/branch), and immutable commit identity
+// kept separate — so a moved tag or branch can never be mistaken for a
+// pinned commit. [NormalizeRef] unifies percent-encoding and SHA casing.
 package lockfile

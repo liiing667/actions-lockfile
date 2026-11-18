@@ -22,11 +22,16 @@ type Pin struct {
 }
 
 // Canonical returns a copy of p with owner and repo lowercased. Ref preserves
-// source casing — git refs are case-sensitive. String, IndexKey, and ParsePin
-// all funnel through it.
+// source casing — git refs are case-sensitive — except that a full commit
+// SHA is lowercased, since hex digests are case-insensitive and must not
+// produce distinct pins. String, IndexKey, and ParsePin all funnel through
+// it.
 func (p Pin) Canonical() Pin {
 	p.Owner = strings.ToLower(p.Owner)
 	p.Repo = strings.ToLower(p.Repo)
+	if IsFullSha(p.Ref) {
+		p.Ref = strings.ToLower(p.Ref)
+	}
 	p.NWO = p.Owner + "/" + p.Repo
 	return p
 }
@@ -50,11 +55,19 @@ func IndexKey(owner, repo, ref string) string {
 	return Pin{Owner: owner, Repo: repo, Ref: ref}.IndexKey()
 }
 
+// RefIdentity parses the pin's ref into its safe identity form, keeping the
+// raw ref, its parsed kind, and any immutable commit identity separate. See
+// [ParseRefIdentity].
+func (p Pin) RefIdentity() (RefIdentity, bool) {
+	return ParseRefIdentity(p.Ref)
+}
+
 // ParsePin parses a canonical pin string "OWNER/REPO@REF". It returns
 // ok=false when the "@" separator is missing or the repo portion carries a
 // sub-action path (e.g. "owner/repo/sub@ref"), which the repo-scoped grammar
-// rejects. On success owner and repo are lowercased; Ref preserves source
-// casing.
+// rejects. On success owner and repo are lowercased and the ref is
+// normalized via [NormalizeRef] (percent-decoded, full SHAs lowercased);
+// refs with malformed percent-encoding are rejected.
 func ParsePin(s string) (Pin, bool) {
 	atIdx := strings.IndexByte(s, '@')
 	if atIdx <= 0 || atIdx == len(s)-1 {
@@ -72,14 +85,15 @@ func ParsePin(s string) (Pin, bool) {
 		return Pin{}, false
 	}
 
-	if !isValidRef(ref) {
+	normRef, ok := NormalizeRef(ref)
+	if !ok {
 		return Pin{}, false
 	}
 
 	return Pin{
 		Owner: owner,
 		Repo:  repo,
-		Ref:   ref,
+		Ref:   normRef,
 	}.Canonical(), true
 }
 
