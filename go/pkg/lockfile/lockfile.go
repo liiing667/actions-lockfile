@@ -213,6 +213,34 @@ func (f File) LookupWorkflow(workflowKey string) ([]string, bool) {
 	return w, ok
 }
 
+// PinIdentity resolves a canonical pin key (as stored in Dependencies and
+// Workflows) to its fully-qualified [Identity], folding in the entry's
+// network origin. It is the audit-side counterpart to the `uses:`-side
+// [ParseActionIdentity]: both produce the same [Identity.Key] for the same
+// action regardless of spelling.
+//
+// The host comes from the entry's Hostname field. An empty value means the
+// home host, which [Parse] normalizes to github.com for the dotcom-only
+// v0.0.1/v0.0.2 schemas; a v0.0.3 file that omits hostname resolves against
+// the caller-supplied homeHost instead (pass "" to reject those rather than
+// guess an origin). An unknown host, an unparseable pin, or a missing
+// dependency yields ok=false — callers fail closed.
+func (f File) PinIdentity(pinKey, homeHost string) (Identity, bool) {
+	pin, ok := ParsePin(pinKey)
+	if !ok {
+		return Identity{}, false
+	}
+	action, ok := f.Dependencies[pin.String()]
+	if !ok {
+		return Identity{}, false
+	}
+	host := action.Hostname
+	if host == "" {
+		host = homeHost
+	}
+	return pin.Identity(host)
+}
+
 // Action carries the per-action metadata recorded under a pin key.
 type Action struct {
 	// Hostname is the GitHub instance that owns the dependency. Empty means
@@ -418,11 +446,19 @@ func rejectZeroValues(action *yaml.Node, dep string) *ParseError {
 			}
 		}
 
-		if key.Value == "hostname" && val.Value != "" && !canonicalHostnameRE.MatchString(val.Value) {
-			return &ParseError{
-				Line:   val.Line,
-				Column: val.Column,
-				Msg:    fmt.Sprintf("action field %q must be \"github.com\" or a lowercase canonical GHE tenant hostname for dependency %q, got %q", key.Value, dep, val.Value),
+		if key.Value == "hostname" && val.Value != "" {
+			// Route through the shared network-origin normalizer so the
+			// lockfile's host validation and the action-identity keys use one
+			// rule. NormalizeHostname accepts DNS-equivalent spellings
+			// (case, trailing root dot); an origin that does not normalize
+			// to a known GitHub host fails closed here.
+			canonical, known := NormalizeHostname(val.Value)
+			if !known || canonical != val.Value {
+				return &ParseError{
+					Line:   val.Line,
+					Column: val.Column,
+					Msg:    fmt.Sprintf("action field %q must be \"github.com\" or a lowercase canonical GHE tenant hostname for dependency %q, got %q", key.Value, dep, val.Value),
+				}
 			}
 		}
 

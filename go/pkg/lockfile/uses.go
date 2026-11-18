@@ -31,6 +31,18 @@ func (a ActionRef) FullName() string {
 	return a.Owner + "/" + a.Repo
 }
 
+// Identity returns the canonical, host-qualified Identity for this reference
+// on the given network origin. host is normalized (case-folded, trailing DNS
+// dot stripped) and must be a known GitHub host; an unknown host or an
+// ambiguous reference yields ok=false so callers fail closed. A zero-value
+// ActionRef always fails.
+func (a ActionRef) Identity(host string) (Identity, bool) {
+	if a.Owner == "" || a.Repo == "" {
+		return Identity{}, false
+	}
+	return identityFromParts(host, a.Owner, a.Repo, a.Path, a.Ref)
+}
+
 // ParseActionRef parses a `uses:` string into an ActionRef. It returns nil
 // for anything that is not a repository action — expression refs, local
 // paths, docker images, reusable workflow files, or any input whose
@@ -116,6 +128,12 @@ func splitUsesRef(uses string) *usesRef {
 		}
 		parsed.Path = segments[2]
 	}
+	// Fail closed on trailing-dot owner/repo names. GitHub never issues such
+	// names, and some filesystems treat "repo." and "repo" as the same entry,
+	// so accepting them would let one object carry two identities.
+	if strings.HasSuffix(segments[0], ".") || strings.HasSuffix(segments[1], ".") {
+		return nil
+	}
 
 	return parsed
 }
@@ -147,6 +165,17 @@ func (r ReusableWorkflowRef) NWO() string {
 // identity.
 func (r ReusableWorkflowRef) FullName() string {
 	return r.Owner + "/" + r.Repo + "/" + r.Path
+}
+
+// Identity returns the canonical, host-qualified Identity for this reusable
+// workflow on the given network origin. host is normalized and must be a
+// known GitHub host; an unknown host or ambiguous reference yields ok=false.
+// A zero-value ReusableWorkflowRef always fails.
+func (r ReusableWorkflowRef) Identity(host string) (Identity, bool) {
+	if r.Owner == "" || r.Repo == "" || r.Path == "" {
+		return Identity{}, false
+	}
+	return identityFromParts(host, r.Owner, r.Repo, r.Path, r.Ref)
 }
 
 // ParseReusableWorkflowRef parses the remote reusable-workflow `uses:` shape
@@ -223,7 +252,10 @@ func isValidPath(p string) bool {
 		return false
 	}
 	for _, seg := range strings.Split(p, "/") {
-		if !isValidSegment(seg) {
+		// Trailing-dot segments are ambiguous (never valid GitHub names,
+		// potentially collapsed on case-insensitive filesystems), so fail
+		// closed rather than treating two spellings as one path.
+		if !isValidSegment(seg) || strings.HasSuffix(seg, ".") {
 			return false
 		}
 	}

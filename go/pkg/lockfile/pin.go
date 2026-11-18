@@ -31,6 +31,17 @@ func (p Pin) Canonical() Pin {
 	return p
 }
 
+// Identity returns the canonical, host-qualified Identity for this repo-level
+// pin. host is normalized through NormalizeHostname and must be a known
+// GitHub host; an unknown host or an invalid pin yields ok=false. The
+// returned Identity has no sub-action path: pins are repo+ref granular.
+func (p Pin) Identity(host string) (Identity, bool) {
+	if p.Owner == "" || p.Repo == "" {
+		return Identity{}, false
+	}
+	return identityFromParts(host, p.Owner, p.Repo, "", p.Ref)
+}
+
 // String returns the canonical pin form: "OWNER/REPO@REF".
 // This doubles as the actions-map key in the lockfile.
 func (p Pin) String() string {
@@ -69,6 +80,12 @@ func ParsePin(s string) (Pin, bool) {
 	}
 	owner, repo, ok := SplitNWO(repoPath)
 	if !ok {
+		return Pin{}, false
+	}
+	// Trailing-dot owner/repo names can never name a real GitHub object and
+	// are ambiguous on case-insensitive filesystems — fail closed so a pin
+	// cannot carry two spellings of one identity.
+	if strings.HasSuffix(owner, ".") || strings.HasSuffix(repo, ".") {
 		return Pin{}, false
 	}
 

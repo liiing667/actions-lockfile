@@ -330,6 +330,11 @@ func parsePinV001(s string) (Pin, bool) {
 	if !ok {
 		return Pin{}, false
 	}
+	// Same fail-closed rule as ParsePin: a trailing-dot name can never
+	// identify a real GitHub object and is ambiguous on disk.
+	if strings.HasSuffix(owner, ".") || strings.HasSuffix(repo, ".") {
+		return Pin{}, false
+	}
 
 	// Strip the optional :algo-hex suffix.
 	ref := refAndMaybeSuffix
