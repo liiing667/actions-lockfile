@@ -16,6 +16,7 @@
       "type": "object",
       "additionalProperties": {
         "type": "array",
+        "uniqueItems": true,
         "items": { "$ref": "#/$defs/pin" }
       }
     },
@@ -59,6 +60,7 @@
         "uses": {
           "description": "The action's own direct dependencies, as canonical pin keys, so the full dependency graph stays pinned and verifiable end to end. Required for composite actions (which can call other actions); absent for leaf actions that have no dependencies of their own.",
           "type": "array",
+          "uniqueItems": true,
           "items": { "$ref": "#/$defs/pin" }
         }
       }

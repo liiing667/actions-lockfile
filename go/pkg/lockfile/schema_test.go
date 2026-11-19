@@ -314,10 +314,16 @@ dependencies:
     repo_id: 2
     uses:
       - actions/cache@v4
+  actions/cache@v4:
+    hostname: octocorp.ghe.com
+    ref: v4
+    commit: sha1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    owner_id: 1
+    repo_id: 3
 `
 	f, err := Parse([]byte(yaml))
 	require.NoError(t, err)
-	assert.Len(t, f.Dependencies, 1)
+	assert.Len(t, f.Dependencies, 2)
 	assert.Contains(t, f.Workflows, ".github/workflows/ci.yml")
 	assert.Equal(t, "octocorp.ghe.com", f.Dependencies["actions/checkout@v4"].Hostname)
 }

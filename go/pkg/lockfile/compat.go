@@ -138,6 +138,23 @@ func parseInternal(contents []byte, policy *VersionPolicy, paths []string) (File
 		return File{}, pe
 	}
 
+	// v0.0.1 pin keys carry a legacy ":algo-hex" request digest that
+	// migration strips. Require it to agree with the locked body before any
+	// cross-reference checks, so a disagreeing request cannot be silently
+	// discarded in favour of the first surviving record.
+	if pe := validateLegacyDigestSuffixes(&f); pe != nil {
+		return File{}, pe
+	}
+
+	// Enforce a closed graph: workflow closures and uses lists may only name
+	// pins that exist in Dependencies, and a workflow may not pin the same
+	// canonical action to multiple refs. These checks make upgrade/downgrade
+	// and dangling-reference conflicts fail loudly instead of letting an
+	// unpinned action drift.
+	if pe := validateGraphIntegrity(&f); pe != nil {
+		return File{}, pe
+	}
+
 	// Normalize to the latest version: File always represents the current
 	// schema regardless of what was on disk.
 	f.Version = Version

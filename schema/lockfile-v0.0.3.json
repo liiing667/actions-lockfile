@@ -12,10 +12,11 @@
       "const": "v0.0.3"
     },
     "workflows": {
-      "description": "Map of repo-relative workflow path to the flat, transitive list of canonical pin keys it depends on.",
+      "description": "Map of repo-relative workflow path to the flat, transitive list of canonical pin keys it depends on. Each pin is unique within a workflow, and every pin must resolve to an entry in dependencies; the parser additionally rejects two refs of the same owner/repo within one workflow.",
       "type": "object",
       "additionalProperties": {
         "type": "array",
+        "uniqueItems": true,
         "items": { "$ref": "#/$defs/pin" }
       }
     },
@@ -63,8 +64,9 @@
           "minimum": 1
         },
         "uses": {
-          "description": "The action's own direct dependencies, as canonical pin keys, so the full dependency graph stays pinned and verifiable end to end. Required for composite actions (which can call other actions); absent for leaf actions that have no dependencies of their own.",
+          "description": "The action's own direct dependencies, as canonical pin keys, so the full dependency graph stays pinned and verifiable end to end. Required for composite actions (which can call other actions); absent for leaf actions that have no dependencies of their own. Each entry is unique and must resolve to an entry in dependencies; referential integrity is enforced by the parser.",
           "type": "array",
+          "uniqueItems": true,
           "items": { "$ref": "#/$defs/pin" }
         }
       }
